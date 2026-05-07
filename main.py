@@ -1,11 +1,19 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import os
+import logging
 from threading import Thread
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from datetime import datetime
 
-# --- CONFIGURAÇÃO PARA O KOYEB (Health Check) ---
-# Isso cria um servidor web falso na porta 8000 só pro Koyeb não desligar o bot
+from config import setup_logging, CORES, DISCORD_TOKEN
+
+setup_logging()
+logger = logging.getLogger('bot.main')
+
+
+# --- Health Check para Koyeb ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -13,8 +21,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"O Chefe ta ON e roteando!")
 
+    def log_message(self, format, *args):
+        return
+
 def run_server():
-    # O Koyeb procura a porta 8000, entao vamos abrir ela
     server = HTTPServer(('0.0.0.0', 8000), HealthCheckHandler)
     server.serve_forever()
 
@@ -22,31 +32,79 @@ def start_health_check():
     t = Thread(target=run_server)
     t.daemon = True
     t.start()
-# -----------------------------------------------
+    logger.info("Health Check HTTP server iniciado na porta 8000")
 
-#nada aqui
+
+# --- Bot ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
+bot.start_time = datetime.now()
 
 
 @bot.event
-async def on_ready():
-    print(f'Logado com sucesso como {bot.user}!')
-    print('Carregando Cogs...')
+async def setup_hook():
+    logger.info('Carregando Cogs...')
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py'):
             try:
                 await bot.load_extension(f'cogs.{filename[:-3]}')
-                print(f'Cog {filename} carregado com sucesso.')
+                logger.info(f'  ✅ Cog {filename} carregado')
             except Exception as e:
-                print(f'Falha ao carregar o Cog {filename}: {e}')
-    print('------------------------------------')
-    print('Robô está online e pronto para uso!')
+                logger.error(f'  ❌ Falha ao carregar {filename}: {e}')
+    logger.info('Carregamento de Cogs concluído')
 
 
+@bot.event
+async def on_ready():
+    logger.info(f'Logado como {bot.user} (ID: {bot.user.id})')
+    logger.info(f'Conectado a {len(bot.guilds)} servidor(es)')
+    logger.info('------------------------------------')
+    logger.info('Robô está online e pronto para uso!')
+
+
+# --- Error Handler Global ---
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    embed_erro = discord.Embed(color=CORES['erro'])
+    cmd_name = interaction.command.name if interaction.command else "desconhecido"
+
+    if isinstance(error, app_commands.CommandNotFound):
+        embed_erro.title = "❌ Comando Desatualizado"
+        embed_erro.description = "Este comando não existe mais. Use `!sync` para atualizar os comandos."
+        logger.warning(f"Comando não encontrado: {error}")
+
+    elif isinstance(error, app_commands.MissingPermissions):
+        embed_erro.title = "⛔ Sem Permissão"
+        embed_erro.description = "Você não tem permissão para usar este comando."
+        logger.warning(f"Permissão negada: {interaction.user} tentou usar /{cmd_name}")
+
+    elif isinstance(error, app_commands.CommandOnCooldown):
+        embed_erro.title = "⏳ Cooldown Ativo"
+        embed_erro.description = f"Aguarde **{error.retry_after:.1f}s** antes de usar este comando novamente."
+
+    elif isinstance(error, app_commands.BotMissingPermissions):
+        embed_erro.title = "🤖 Bot Sem Permissão"
+        embed_erro.description = "Eu não tenho permissão suficiente para executar essa ação. Verifique meus cargos!"
+        logger.warning(f"Bot sem permissão para /{cmd_name} em {interaction.guild.name}")
+
+    else:
+        embed_erro.title = "❌ Erro Inesperado"
+        embed_erro.description = "Ocorreu um erro ao executar este comando. Os administradores foram notificados."
+        logger.error(f"Erro em /{cmd_name}: {error}", exc_info=True)
+
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed_erro, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed_erro, ephemeral=True)
+    except Exception:
+        pass
+
+
+# --- Sync (único comando com prefixo — necessário para sincronizar slash commands) ---
 @bot.command()
 @commands.is_owner()
 async def sync(ctx, spec: str = None):
@@ -59,11 +117,12 @@ async def sync(ctx, spec: str = None):
     ctx.bot.tree.copy_global_to(guild=guild)
     synced = await ctx.bot.tree.sync(guild=guild)
     await ctx.send(f"Sincronizado {len(synced)} comandos para este servidor.")
+    logger.info(f"Sincronizado {len(synced)} comandos para {guild.name}")
 
 
-token = os.environ['DISCORD_TOKEN']
+if not DISCORD_TOKEN:
+    logger.critical("DISCORD_TOKEN não encontrado! Configure a variável de ambiente ou o arquivo .env")
+    exit(1)
 
-# Inicia o servidor falso antes de ligar o bot
 start_health_check()
-
-bot.run(token)
+bot.run(DISCORD_TOKEN, log_handler=None)

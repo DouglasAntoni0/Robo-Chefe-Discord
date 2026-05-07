@@ -1,0 +1,22 @@
+# === Segurança ===
+.env
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# === Dados do Bot ===
+*.db
+bot.log
+warnings.json
+guild_settings.json
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
