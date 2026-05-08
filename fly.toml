@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for robo-chefe-discord-cap2ig on 2026-05-08T01:02:43Z
+# fly.toml app configuration file generated for robo-chefe-discord-expaaq on 2026-05-08T01:15:22Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'robo-chefe-discord-cap2ig'
+app = 'robo-chefe-discord-expaaq'
 primary_region = 'ams'
 
 [build]
