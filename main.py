@@ -25,14 +25,16 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         return
 
 def run_server():
-    server = HTTPServer(('0.0.0.0', 8000), HealthCheckHandler)
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
 
 def start_health_check():
     t = Thread(target=run_server)
     t.daemon = True
     t.start()
-    logger.info("Health Check HTTP server iniciado na porta 8000")
+    port = int(os.environ.get("PORT", 8080))
+    logger.info(f"Health Check HTTP server iniciado na porta {port}")
 
 
 # --- Bot ---
