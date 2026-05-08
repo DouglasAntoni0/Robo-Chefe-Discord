@@ -1,0 +1,11 @@
+.env
+.git
+.venv
+.vscode
+__pycache__
+*.pyc
+*.pyo
+*.db
+bot.log
+.replit
+uv.lock
