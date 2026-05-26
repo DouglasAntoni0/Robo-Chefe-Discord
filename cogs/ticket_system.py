@@ -9,6 +9,14 @@ from config import CORES
 
 logger = logging.getLogger('bot.tickets')
 
+NOME_CARGO_FUNCIONARIO = "Funcionário"
+
+def tem_permissao_ticket(member: discord.Member) -> bool:
+    """Retorna True se o membro é admin OU tem o cargo 'Funcionário'."""
+    if member.guild_permissions.administrator:
+        return True
+    return discord.utils.get(member.roles, name=NOME_CARGO_FUNCIONARIO) is not None
+
 TITULO_EMBED = "Suporte e atendimento"
 DESCRICAO_EMBED = "Precisa de ajuda, quer fazer um pedido ou tem alguma dúvida? Clique no botão abaixo para abrir um ticket privado com nossa equipe."
 TEXTO_BOTAO_CRIAR = "Abrir Ticket"
@@ -73,8 +81,8 @@ class TicketControls(View):
 
     @discord.ui.button(label="Fechar Ticket", style=discord.ButtonStyle.red, custom_id="fechar_ticket_btn", emoji="🔒")
     async def fechar_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("⛔ **Apenas Administradores podem fechar o ticket!**", ephemeral=True)
+        if not tem_permissao_ticket(interaction.user):
+            await interaction.response.send_message("⛔ **Apenas Administradores ou Funcionários podem fechar o ticket!**", ephemeral=True)
             return
 
         await interaction.response.send_message("Fechando ticket e enviando formulário para o cliente...", ephemeral=True)
@@ -105,8 +113,8 @@ class TicketControls(View):
 
     @discord.ui.button(label="Chamar Cliente", style=discord.ButtonStyle.secondary, custom_id="chamar_cliente_btn", emoji="🔔")
     async def chamar_cliente(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("⛔ Apenas Admins podem chamar o cliente.", ephemeral=True)
+        if not tem_permissao_ticket(interaction.user):
+            await interaction.response.send_message("⛔ Apenas Admins ou Funcionários podem chamar o cliente.", ephemeral=True)
             return
 
         topic = interaction.channel.topic
@@ -153,9 +161,21 @@ class TicketLauncher(View):
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
 
+        # Permitir que membros com cargo "Funcionário" vejam e respondam nos tickets
+        cargo_funcionario = discord.utils.get(guild.roles, name=NOME_CARGO_FUNCIONARIO)
+        if cargo_funcionario:
+            overwrites[cargo_funcionario] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+        # Buscar (ou criar) a categoria "TICKETS"
+        categoria_tickets = discord.utils.get(guild.categories, name="TICKETS")
+        if not categoria_tickets:
+            categoria_tickets = await guild.create_category("TICKETS")
+            logger.info(f"Categoria 'TICKETS' criada automaticamente no servidor {guild.name}")
+
         channel = await guild.create_text_channel(
             name=f"ticket-{interaction.user.name}",
             topic=f"Ticket de {interaction.user.name} | ID: {interaction.user.id}",
+            category=categoria_tickets,
             overwrites=overwrites
         )
 
