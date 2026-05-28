@@ -4,6 +4,7 @@ from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 import asyncio
 import logging
+from datetime import datetime, timedelta
 
 from config import CORES
 
@@ -76,6 +77,10 @@ class BotaoAvaliar(View):
 
 # --- Controles do Ticket (Fechar / Chamar) ---
 class TicketControls(View):
+    # Cooldown de 15 minutos por canal para o botão "Chamar Cliente"
+    _cooldowns: dict[int, datetime] = {}
+    COOLDOWN_MINUTOS = 15
+
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -98,6 +103,8 @@ class TicketControls(View):
                 pass
 
         logger.info(f"Ticket #{channel.name} fechado por {interaction.user.name}")
+        # Limpa o cooldown do "Chamar Cliente" ao fechar o ticket
+        TicketControls._cooldowns.pop(channel.id, None)
         await asyncio.sleep(2)
         await channel.delete()
 
@@ -117,6 +124,25 @@ class TicketControls(View):
             await interaction.response.send_message("⛔ Apenas Admins ou Funcionários podem chamar o cliente.", ephemeral=True)
             return
 
+        # --- Verificação de cooldown de 15 minutos ---
+        channel_id = interaction.channel.id
+        agora = datetime.now()
+        ultimo_uso = TicketControls._cooldowns.get(channel_id)
+
+        if ultimo_uso:
+            tempo_passado = agora - ultimo_uso
+            cooldown_total = timedelta(minutes=TicketControls.COOLDOWN_MINUTOS)
+            if tempo_passado < cooldown_total:
+                restante = cooldown_total - tempo_passado
+                minutos_rest = int(restante.total_seconds() // 60)
+                segundos_rest = int(restante.total_seconds() % 60)
+                await interaction.response.send_message(
+                    f"⏳ **Calma lá!** Você só pode chamar o cliente a cada **{TicketControls.COOLDOWN_MINUTOS} minutos** para evitar spam.\n"
+                    f"Tente novamente em **{minutos_rest}m {segundos_rest}s**.",
+                    ephemeral=True
+                )
+                return
+
         topic = interaction.channel.topic
         user_id = None
         if topic and "ID:" in topic:
@@ -131,7 +157,9 @@ class TicketControls(View):
                 try:
                     embed_aviso = discord.Embed(title="🔔 Atualização no seu Ticket", description=f"Olá! A equipe do **{interaction.guild.name}** respondeu seu ticket e está aguardando seu retorno.\n\nCorre lá no canal: {interaction.channel.mention}", color=CORES['aviso'])
                     await user.send(embed=embed_aviso)
-                    await interaction.response.send_message(f"✅ Notificação enviada para o privado de {user.mention}!", ephemeral=True)
+                    # Registra o momento do envio no cooldown
+                    TicketControls._cooldowns[channel_id] = agora
+                    await interaction.response.send_message(f"✅ Notificação enviada para o privado de {user.mention}!\n⏳ Próximo envio liberado em **{TicketControls.COOLDOWN_MINUTOS} minutos**.", ephemeral=True)
                     logger.info(f"{interaction.user.name} chamou {user.name} no ticket #{interaction.channel.name}")
                 except:
                     await interaction.response.send_message(f"❌ O cliente {user.mention} está com o privado bloqueado.", ephemeral=True)
