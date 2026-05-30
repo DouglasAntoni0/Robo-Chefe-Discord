@@ -12,11 +12,21 @@ logger = logging.getLogger('bot.tickets')
 
 NOME_CARGO_FUNCIONARIO = "Funcionário"
 
+def buscar_cargo_funcionario(guild: discord.Guild):
+    """Busca o cargo que contém 'Funcionário' no nome (ignora emojis e maiúsculas)."""
+    for role in guild.roles:
+        if NOME_CARGO_FUNCIONARIO.lower() in role.name.lower():
+            return role
+    return None
+
 def tem_permissao_ticket(member: discord.Member) -> bool:
     """Retorna True se o membro é admin OU tem o cargo 'Funcionário'."""
     if member.guild_permissions.administrator:
         return True
-    return discord.utils.get(member.roles, name=NOME_CARGO_FUNCIONARIO) is not None
+    cargo = buscar_cargo_funcionario(member.guild)
+    if cargo and cargo in member.roles:
+        return True
+    return False
 
 TITULO_EMBED = "Suporte e atendimento"
 DESCRICAO_EMBED = "Precisa de ajuda, quer fazer um pedido ou tem alguma dúvida? Clique no botão abaixo para abrir um ticket privado com nossa equipe."
@@ -190,7 +200,7 @@ class TicketLauncher(View):
         }
 
         # Permitir que membros com cargo "Funcionário" vejam e respondam nos tickets
-        cargo_funcionario = discord.utils.get(guild.roles, name=NOME_CARGO_FUNCIONARIO)
+        cargo_funcionario = buscar_cargo_funcionario(guild)
         if cargo_funcionario:
             overwrites[cargo_funcionario] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
@@ -212,6 +222,7 @@ class TicketLauncher(View):
 
         embed = discord.Embed(title="Atendimento Iniciado", description="Olá! Descreva sua solicitação. A equipe administrativa logo irá atendê-lo.", color=CORES['ticket'])
         await channel.send(embed=embed, view=TicketControls())
+
 
 
 # --- Cog Principal ---
