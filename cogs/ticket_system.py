@@ -222,6 +222,7 @@ class TicketLauncher(View):
 
         embed = discord.Embed(title="Atendimento Iniciado", description="Olá! Descreva sua solicitação. A equipe administrativa logo irá atendê-lo.", color=CORES['ticket'])
         await channel.send(embed=embed, view=TicketControls())
+        await channel.send("@everyone")
 
 
 
