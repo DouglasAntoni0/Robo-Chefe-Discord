@@ -85,6 +85,103 @@ class BotaoAvaliar(View):
         await interaction.response.send_modal(AvaliacaoModal(interaction.user, interaction.message))
 
 
+# --- Botões de Encerramento (Concluído / Não Entregue) ---
+class TicketEncerramento(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Concluído com Sucesso", style=discord.ButtonStyle.green, custom_id="ticket_concluido_btn", emoji="✅")
+    async def concluido(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not tem_permissao_ticket(interaction.user):
+            await interaction.response.send_message("⛔ Sem permissão.", ephemeral=True)
+            return
+
+        await interaction.response.send_message("✅ Encerrando como **concluído** e notificando o cliente...", ephemeral=True)
+
+        channel = interaction.channel
+        topic = channel.topic
+        guild = interaction.guild
+
+        user_id = None
+        if topic and "ID:" in topic:
+            try:
+                user_id = int(topic.split("ID: ")[1])
+            except:
+                pass
+
+        logger.info(f"Ticket #{channel.name} encerrado como CONCLUÍDO por {interaction.user.name}")
+        TicketControls._cooldowns.pop(channel.id, None)
+        await asyncio.sleep(2)
+        await channel.delete()
+
+        if user_id:
+            user = guild.get_member(user_id)
+            if user:
+                try:
+                    embed_dm = discord.Embed(
+                        title="✅ Pedido Finalizado com Sucesso!",
+                        description=(
+                            f"O seu pedido no servidor **{guild.name}** foi finalizado com sucesso! 🎉\n\n"
+                            f"Foi um prazer atendê-lo e tê-lo como nosso cliente. "
+                            f"Esperamos te ver novamente em breve!\n\n"
+                            f"Dedique alguns segundos para nos avaliar e nos dizer como podemos melhorar. "
+                            f"Sua opinião é muito importante para nós.\n\n"
+                            f"Obrigado pela confiança e até a próxima! 💙"
+                        ),
+                        color=CORES['sucesso']
+                    )
+                    await user.send(embed=embed_dm, view=BotaoAvaliar())
+                    logger.info(f"DM de conclusão enviada para {user.name}")
+                except:
+                    logger.warning(f"Não consegui enviar DM para {user.name}")
+
+    @discord.ui.button(label="Não foi possível entregar", style=discord.ButtonStyle.red, custom_id="ticket_nao_entregue_btn", emoji="❌")
+    async def nao_entregue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not tem_permissao_ticket(interaction.user):
+            await interaction.response.send_message("⛔ Sem permissão.", ephemeral=True)
+            return
+
+        await interaction.response.send_message("❌ Encerrando como **não entregue** e notificando o cliente...", ephemeral=True)
+
+        channel = interaction.channel
+        topic = channel.topic
+        guild = interaction.guild
+
+        user_id = None
+        if topic and "ID:" in topic:
+            try:
+                user_id = int(topic.split("ID: ")[1])
+            except:
+                pass
+
+        logger.info(f"Ticket #{channel.name} encerrado como NÃO ENTREGUE por {interaction.user.name}")
+        TicketControls._cooldowns.pop(channel.id, None)
+        await asyncio.sleep(2)
+        await channel.delete()
+
+        if user_id:
+            user = guild.get_member(user_id)
+            if user:
+                try:
+                    embed_dm = discord.Embed(
+                        title="Seu ticket foi encerrado",
+                        description=(
+                            f"Seu ticket no servidor **{guild.name}** foi encerrado. 😔\n\n"
+                            f"Infelizmente, não foi possível concluir o seu pedido da forma que gostaríamos. "
+                            f"Sentimos muito por qualquer inconveniente causado.\n\n"
+                            f"Mas gostaríamos muito de vê-lo novamente conosco! "
+                            f"Dedique alguns segundos para nos avaliar e nos dizer como podemos melhorar. "
+                            f"E qualquer coisa, não hesite em nos procurar novamente.\n\n"
+                            f"Estamos sempre aqui para te ajudar! 💙"
+                        ),
+                        color=CORES['aviso']
+                    )
+                    await user.send(embed=embed_dm, view=BotaoAvaliar())
+                    logger.info(f"DM de não-entrega enviada para {user.name}")
+                except:
+                    logger.warning(f"Não consegui enviar DM para {user.name}")
+
+
 # --- Controles do Ticket (Fechar / Chamar) ---
 class TicketControls(View):
     # Cooldown de 15 minutos por canal para o botão "Chamar Cliente"
@@ -100,33 +197,12 @@ class TicketControls(View):
             await interaction.response.send_message("⛔ **Apenas Administradores ou Funcionários podem fechar o ticket!**", ephemeral=True)
             return
 
-        await interaction.response.send_message("Fechando ticket e enviando formulário para o cliente...", ephemeral=True)
-
-        channel = interaction.channel
-        topic = channel.topic
-
-        user_id = None
-        if topic and "ID:" in topic:
-            try:
-                user_id = int(topic.split("ID: ")[1])
-            except:
-                pass
-
-        logger.info(f"Ticket #{channel.name} fechado por {interaction.user.name}")
-        # Limpa o cooldown do "Chamar Cliente" ao fechar o ticket
-        TicketControls._cooldowns.pop(channel.id, None)
-        await asyncio.sleep(2)
-        await channel.delete()
-
-        if user_id:
-            user = interaction.guild.get_member(user_id)
-            if user:
-                try:
-                    embed_dm = discord.Embed(title="Atendimento Encerrado", description=f"Olá! Seu ticket no servidor **{interaction.guild.name}** foi fechado.\nPor favor, dedique um segundo para nos avaliar clicando abaixo.", color=CORES['ticket'])
-                    await user.send(embed=embed_dm, view=BotaoAvaliar())
-                    logger.info(f"Formulário de avaliação enviado para {user.name}")
-                except:
-                    logger.warning(f"Não consegui enviar DM para {user.name}")
+        embed_escolha = discord.Embed(
+            title="🔒 Encerrar Ticket",
+            description="Como deseja encerrar este ticket? Escolha uma opção abaixo:",
+            color=CORES['ticket']
+        )
+        await interaction.response.send_message(embed=embed_escolha, view=TicketEncerramento(), ephemeral=True)
 
     @discord.ui.button(label="Chamar Cliente", style=discord.ButtonStyle.secondary, custom_id="chamar_cliente_btn", emoji="🔔")
     async def chamar_cliente(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -224,7 +300,7 @@ class TicketLauncher(View):
         embed_boas_vindas = discord.Embed(
             title="🧵 Atendimento Iniciado",
             description=(
-                "Olá! Bem-vindo(a) ao atendimento da equipe **Artesanato**! 🎨\n\n"
+                "Olá! Bem-vindo(a) ao atendimento da equipe **Artesanato de BW**! 🎨\n\n"
                 "Você já pode descrever sua solicitação aqui neste canal. "
                 "Nossa equipe irá atendê-lo(a) o mais rápido possível."
             ),
@@ -272,9 +348,10 @@ class TicketSystem(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        logger.info("--- Ticket System V4.0 Carregado ---")
+        logger.info("--- Ticket System V5.0 Carregado ---")
         self.bot.add_view(TicketLauncher())
         self.bot.add_view(TicketControls())
+        self.bot.add_view(TicketEncerramento())
         self.bot.add_view(BotaoAvaliar())
 
 async def setup(bot):
