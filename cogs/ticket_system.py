@@ -85,7 +85,7 @@ class BotaoAvaliar(View):
         await interaction.response.send_modal(AvaliacaoModal(interaction.user, interaction.message))
 
 
-# --- Botões de Encerramento (Concluído / Não Entregue) ---
+# --- Botões de Encerramento (Concluído / Parcial / Não Entregue) ---
 class TicketEncerramento(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -178,6 +178,53 @@ class TicketEncerramento(View):
                     )
                     await user.send(embed=embed_dm, view=BotaoAvaliar())
                     logger.info(f"DM de não-entrega enviada para {user.name}")
+                except:
+                    logger.warning(f"Não consegui enviar DM para {user.name}")
+
+    @discord.ui.button(label="Parcialmente Concluído", style=discord.ButtonStyle.secondary, custom_id="ticket_parcial_btn", emoji="⚠️")
+    async def parcial(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not tem_permissao_ticket(interaction.user):
+            await interaction.response.send_message("⛔ Sem permissão.", ephemeral=True)
+            return
+
+        await interaction.response.send_message("⚠️ Encerrando como **parcialmente concluído** e notificando o cliente...", ephemeral=True)
+
+        channel = interaction.channel
+        topic = channel.topic
+        guild = interaction.guild
+
+        user_id = None
+        if topic and "ID:" in topic:
+            try:
+                user_id = int(topic.split("ID: ")[1])
+            except:
+                pass
+
+        logger.info(f"Ticket #{channel.name} encerrado como PARCIALMENTE CONCLUÍDO por {interaction.user.name}")
+        TicketControls._cooldowns.pop(channel.id, None)
+        await asyncio.sleep(2)
+        await channel.delete()
+
+        if user_id:
+            user = guild.get_member(user_id)
+            if user:
+                try:
+                    embed_dm = discord.Embed(
+                        title="⚠️ Seu pedido foi parcialmente concluído",
+                        description=(
+                            f"Seu ticket no servidor **{guild.name}** foi encerrado. ⚠️\n\n"
+                            f"O seu pedido foi parcialmente concluído — nem tudo saiu como planejávamos, "
+                            f"mas fizemos o possível para atender parte da sua solicitação.\n\n"
+                            f"Sabemos que não é o ideal e pedimos desculpas por qualquer inconveniente. "
+                            f"Caso precise de algo mais, não hesite em abrir um novo ticket!\n\n"
+                            f"Dedique alguns segundos para nos avaliar e nos dizer como podemos melhorar. "
+                            f"Sua opinião nos ajuda a evoluir.\n\n"
+                            f"Contamos com você! 💙"
+                        ),
+                        color=CORES['aviso']
+                    )
+                    await user.send(embed=embed_dm, view=BotaoAvaliar())
+                    logger.info(f"DM de conclusão parcial enviada para {user.name}")
                 except:
                     logger.warning(f"Não consegui enviar DM para {user.name}")
 
