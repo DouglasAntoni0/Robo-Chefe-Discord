@@ -220,8 +220,39 @@ class TicketLauncher(View):
         await interaction.response.send_message(f"✅ Ticket criado: {channel.mention}", ephemeral=True)
         logger.info(f"Ticket criado por {interaction.user.name}: #{channel.name}")
 
-        embed = discord.Embed(title="Atendimento Iniciado", description="Olá! Descreva sua solicitação. A equipe administrativa logo irá atendê-lo.", color=CORES['ticket'])
-        await channel.send(embed=embed, view=TicketControls())
+        # Embed 1 — Boas-vindas e prazos
+        embed_boas_vindas = discord.Embed(
+            title="🧵 Atendimento Iniciado",
+            description=(
+                "Olá! Bem-vindo(a) ao atendimento da equipe **Artesanato**! 🎨\n\n"
+                "Você já pode descrever sua solicitação aqui neste canal. "
+                "Nossa equipe irá atendê-lo(a) o mais rápido possível."
+            ),
+            color=CORES['ticket']
+        )
+        embed_boas_vindas.add_field(
+            name="📋 Prazo de Produção",
+            value="A equipe tem um prazo de até **48 horas úteis** para confeccionar o seu pedido.",
+            inline=False
+        )
+        embed_boas_vindas.add_field(
+            name="📦 Retirada / Entrega",
+            value="Após a finalização, o cliente tem **24 horas úteis** para buscar ou receber o pedido.",
+            inline=False
+        )
+
+        # Embed 2 — Política de desistência
+        embed_aviso = discord.Embed(
+            title="⚠️ Atenção — Política de Desistência",
+            description=(
+                "Caso o cliente não responda mais neste ticket ou não retire/receba o pedido dentro do prazo, "
+                "o pedido poderá ser **vendido para outros clientes** ou **colocado na loja**, pois será "
+                "entendido como **desistência**. O ticket poderá ser **encerrado sem aviso prévio**."
+            ),
+            color=CORES['aviso']
+        )
+
+        await channel.send(embeds=[embed_boas_vindas, embed_aviso], view=TicketControls())
         await channel.send("@everyone")
 
 
