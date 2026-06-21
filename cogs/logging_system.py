@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 from config import CORES
 
@@ -17,9 +18,117 @@ class LoggingSystemCog(commands.Cog):
     async def on_ready(self):
         logger.info("--- Logging System Carregado ---")
 
+    # ─── Helpers ─────────────────────────────────────────────────────────
+
+    def _get_log_channel(self, guild: discord.Guild):
+        """Retorna o canal de logs do servidor, se existir."""
+        return discord.utils.get(guild.text_channels, name=self.log_channel_name)
+
+    async def _investigar_quem_apagou(self, message: discord.Message):
+        """
+        Usa TODOS os métodos possíveis para descobrir quem apagou a mensagem.
+
+        Como funciona o Audit Log do Discord:
+        ─────────────────────────────────────
+        • O Discord SÓ cria uma entrada no audit log quando OUTRA pessoa
+          (moderador/bot) apaga a mensagem de alguém.
+        • Se a PRÓPRIA pessoa apaga sua mensagem, NÃO gera audit log.
+        • Portanto:
+            - Encontrou entrada recente no audit log → um moderador/bot apagou.
+            - NÃO encontrou → a própria pessoa apagou.
+
+        Métodos de verificação utilizados:
+        ──────────────────────────────────
+        1. Audit Log: message_delete (moderador apagando mensagem individual)
+        2. Audit Log: message_bulk_delete (moderador usando purge/limpeza)
+        3. Comparação de timestamp (ignora entradas antigas/reutilizadas)
+        4. Verificação se o deletador é bot
+        5. Inferência por eliminação (sem audit log = auto-delete)
+
+        Retorna: (deleter: Member|None, metodo: str, confianca: str)
+        """
+        guild = message.guild
+        agora = discord.utils.utcnow()
+        # Janela de tempo: entradas de audit log mais velhas que isso são ignoradas
+        janela = timedelta(seconds=10)
+
+        deleter = None
+        metodo = "desconhecido"
+        confianca = "❓ Baixa"
+
+        # ── MÉTODO 1: Audit Log — message_delete ────────────────────────
+        try:
+            async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.message_delete):
+                # Só considera entradas recentes (dentro da janela de tempo)
+                if (agora - entry.created_at) > janela:
+                    continue
+
+                # Verifica se o alvo é o autor e o canal bate
+                if (entry.target
+                        and entry.target.id == message.author.id
+                        and hasattr(entry, 'extra')
+                        and entry.extra
+                        and hasattr(entry.extra, 'channel')
+                        and entry.extra.channel.id == message.channel.id):
+                    deleter = entry.user
+                    if deleter.bot:
+                        metodo = "🤖 Audit Log — Apagada por BOT"
+                        confianca = "🟢 Alta (audit log confirmou — bot)"
+                    else:
+                        metodo = "🛡️ Audit Log — Apagada por MODERADOR"
+                        confianca = "🟢 Alta (audit log confirmou — moderador)"
+                    break
+        except discord.Forbidden:
+            logger.warning(f"Sem permissão para ver audit log em {guild.name}")
+            metodo = "⚠️ Sem acesso ao Audit Log"
+            confianca = "🔴 Impossível verificar (sem permissão)"
+            return deleter, metodo, confianca
+        except Exception as e:
+            logger.error(f"Erro ao consultar audit log message_delete: {e}")
+
+        # ── MÉTODO 2: Audit Log — message_bulk_delete ────────────────────
+        if deleter is None:
+            try:
+                async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.message_bulk_delete):
+                    if (agora - entry.created_at) > janela:
+                        continue
+                    if (hasattr(entry, 'extra')
+                            and entry.extra
+                            and hasattr(entry.extra, 'channel')
+                            and entry.extra.channel.id == message.channel.id):
+                        deleter = entry.user
+                        if deleter.bot:
+                            metodo = "🤖 Audit Log (Bulk) — Limpeza por BOT"
+                            confianca = "🟢 Alta (audit log bulk confirmou — bot)"
+                        else:
+                            metodo = "🛡️ Audit Log (Bulk) — Limpeza por MODERADOR"
+                            confianca = "🟢 Alta (audit log bulk confirmou — moderador)"
+                        break
+            except discord.Forbidden:
+                pass
+            except Exception as e:
+                logger.error(f"Erro ao consultar audit log bulk_delete: {e}")
+
+        # ── MÉTODO 3: Inferência — se não achou no audit log ─────────────
+        if deleter is None:
+            # Sem entrada no audit log = a própria pessoa apagou
+            deleter = message.author
+            metodo = "👤 Auto-exclusão (próprio autor)"
+            confianca = "🟡 Média-Alta (sem registro no audit log = auto-delete)"
+
+        return deleter, metodo, confianca
+
+    def _truncar(self, texto: str, limite: int = 1024) -> str:
+        """Trunca texto para caber nos limites do embed do Discord."""
+        if len(texto) <= limite:
+            return texto
+        return texto[:limite - 20] + "\n… [truncado]"
+
+    # ─── Voice State Logging ─────────────────────────────────────────────
+
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        log_channel = discord.utils.get(member.guild.text_channels, name=self.log_channel_name)
+        log_channel = self._get_log_channel(member.guild)
         if not log_channel:
             return
         if before.channel == after.channel:
@@ -40,33 +149,346 @@ class LoggingSystemCog(commands.Cog):
             embed.set_author(name=member.name, icon_url=member.avatar.url if member.avatar else None)
             await log_channel.send(embed=embed)
 
+    # ─── Mensagem Individual Apagada ─────────────────────────────────────
+
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message):
-        if message.author.bot or message.channel.name == self.log_channel_name:
+        # Ignora bots e mensagens do próprio canal de logs
+        if message.author.bot or not message.guild:
             return
-        log_channel = discord.utils.get(message.guild.text_channels, name=self.log_channel_name)
+        if message.channel.name == self.log_channel_name:
+            return
+
+        log_channel = self._get_log_channel(message.guild)
         if not log_channel:
             return
 
-        await asyncio.sleep(1)
-        deleter = None
-        try:
-            async for entry in message.guild.audit_logs(limit=5, action=discord.AuditLogAction.message_delete):
-                if entry.target.id == message.author.id and entry.extra.channel.id == message.channel.id:
-                    deleter = entry.user
-                    break
-        except discord.Forbidden:
-            deleter = None
+        # Espera o Discord propagar a entrada no audit log
+        await asyncio.sleep(1.5)
 
-        embed_delete = discord.Embed(title="🗑️ Mensagem Apagada", description=f"Uma mensagem de {message.author.mention} foi apagada no canal {message.channel.mention}.", color=CORES['aviso'], timestamp=discord.utils.utcnow())
-        if message.content:
-            embed_delete.add_field(name="Conteúdo da Mensagem", value=f"```{message.content}```", inline=False)
-        if deleter:
-            embed_delete.set_footer(text=f"Apagada por: {deleter.name}")
+        # ── Investigação completa ──
+        deleter, metodo, confianca = await self._investigar_quem_apagou(message)
+
+        # ── Monta o Embed principal ──
+        is_self_delete = (deleter and deleter.id == message.author.id)
+
+        if is_self_delete:
+            cor = CORES.get('aviso', 0xF39C12)       # Amarelo — auto-exclusão
+            titulo = "🗑️ Mensagem Apagada (pelo próprio autor)"
         else:
-            embed_delete.set_footer(text="Não foi possível identificar quem apagou.")
-        await log_channel.send(embed=embed_delete)
-        logger.info(f"Mensagem de {message.author.name} apagada em #{message.channel.name}")
+            cor = CORES.get('moderacao', 0xE74C3C)    # Vermelho — moderação
+            titulo = "🛡️ Mensagem Apagada (por moderação)"
+
+        embed = discord.Embed(
+            title=titulo,
+            color=cor,
+            timestamp=discord.utils.utcnow()
+        )
+
+        # Autor da mensagem
+        embed.set_author(
+            name=f"{message.author.display_name} ({message.author.name})",
+            icon_url=message.author.avatar.url if message.author.avatar else None
+        )
+
+        # Descrição geral
+        desc_lines = [
+            f"**Autor:** {message.author.mention} (`{message.author.id}`)",
+            f"**Canal:** {message.channel.mention} (`#{message.channel.name}`)",
+            f"**ID da Mensagem:** `{message.id}`",
+        ]
+        embed.description = "\n".join(desc_lines)
+
+        # ── Conteúdo da mensagem ──
+        if message.content:
+            embed.add_field(
+                name="📝 Conteúdo da Mensagem",
+                value=self._truncar(f"```\n{message.content}\n```"),
+                inline=False
+            )
+
+        # ── Anexos (imagens, arquivos) ──
+        if message.attachments:
+            anexos = []
+            for att in message.attachments:
+                tamanho = f"{att.size / 1024:.1f} KB" if att.size else "?"
+                anexos.append(f"📎 [{att.filename}]({att.url}) ({tamanho})")
+            embed.add_field(
+                name=f"📁 Anexos ({len(message.attachments)})",
+                value=self._truncar("\n".join(anexos)),
+                inline=False
+            )
+
+        # ── Embeds na mensagem ──
+        if message.embeds:
+            embed_info = []
+            for i, emb in enumerate(message.embeds, 1):
+                titulo_emb = emb.title or "Sem título"
+                embed_info.append(f"#{i}: {titulo_emb}")
+            embed.add_field(
+                name=f"🔗 Embeds ({len(message.embeds)})",
+                value=self._truncar("\n".join(embed_info)),
+                inline=True
+            )
+
+        # ── Stickers ──
+        if message.stickers:
+            sticker_info = [f"🏷️ {s.name}" for s in message.stickers]
+            embed.add_field(
+                name=f"🏷️ Stickers ({len(message.stickers)})",
+                value="\n".join(sticker_info),
+                inline=True
+            )
+
+        # ── Data de criação da mensagem ──
+        embed.add_field(
+            name="📅 Mensagem criada em",
+            value=f"<t:{int(message.created_at.timestamp())}:F> (<t:{int(message.created_at.timestamp())}:R>)",
+            inline=False
+        )
+
+        # ── Quem apagou (resultado da investigação) ──
+        if deleter:
+            quem_info = [
+                f"**Quem apagou:** {deleter.mention} (`{deleter.name}` — ID: `{deleter.id}`)",
+            ]
+            if hasattr(deleter, 'bot'):
+                quem_info.append(f"**É bot?** {'Sim 🤖' if deleter.bot else 'Não 👤'}")
+            if hasattr(deleter, 'top_role') and deleter.top_role:
+                quem_info.append(f"**Cargo mais alto:** {deleter.top_role.mention}")
+
+            embed.add_field(
+                name="🔍 Quem Apagou",
+                value="\n".join(quem_info),
+                inline=False
+            )
+
+        # ── Método de detecção ──
+        embed.add_field(
+            name="🔬 Método de Verificação",
+            value=f"{metodo}",
+            inline=True
+        )
+        embed.add_field(
+            name="📊 Confiança",
+            value=f"{confianca}",
+            inline=True
+        )
+
+        # ── Footer ──
+        if deleter and not is_self_delete:
+            embed.set_footer(text=f"⚠️ MODERAÇÃO: Apagada por {deleter.name}")
+        elif is_self_delete:
+            embed.set_footer(text=f"O próprio autor ({message.author.name}) apagou sua mensagem")
+        else:
+            embed.set_footer(text="Investigação inconclusiva")
+
+        await log_channel.send(embed=embed)
+        logger.info(
+            f"MSG_DELETE | Autor: {message.author.name} | Canal: #{message.channel.name} "
+            f"| Deletada por: {deleter.name if deleter else '???'} | Método: {metodo}"
+        )
+
+    # ─── Mensagem Editada ─────────────────────────────────────────────────
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before: discord.Message, after: discord.Message):
+        # Ignora bots, DMs e canal de logs
+        if before.author.bot or not before.guild:
+            return
+        if before.channel.name == self.log_channel_name:
+            return
+
+        # Ignora edições que não mudaram o conteúdo (ex: embed de link carregando)
+        if before.content == after.content:
+            return
+
+        log_channel = self._get_log_channel(before.guild)
+        if not log_channel:
+            return
+
+        embed = discord.Embed(
+            title="✏️ Mensagem Editada",
+            color=CORES.get('info', 0x3498DB),
+            timestamp=discord.utils.utcnow()
+        )
+
+        embed.set_author(
+            name=f"{after.author.display_name} ({after.author.name})",
+            icon_url=after.author.avatar.url if after.author.avatar else None
+        )
+
+        desc_lines = [
+            f"**Autor:** {after.author.mention} (`{after.author.id}`)",
+            f"**Canal:** {after.channel.mention} (`#{after.channel.name}`)",
+            f"**ID da Mensagem:** `{after.id}`",
+            f"**[Ir para a mensagem]({after.jump_url})**",
+        ]
+        embed.description = "\n".join(desc_lines)
+
+        # Conteúdo ANTES
+        if before.content:
+            embed.add_field(
+                name="📝 Antes",
+                value=self._truncar(f"```\n{before.content}\n```"),
+                inline=False
+            )
+        else:
+            embed.add_field(name="📝 Antes", value="_[sem texto]_", inline=False)
+
+        # Conteúdo DEPOIS
+        if after.content:
+            embed.add_field(
+                name="✏️ Depois",
+                value=self._truncar(f"```\n{after.content}\n```"),
+                inline=False
+            )
+        else:
+            embed.add_field(name="✏️ Depois", value="_[sem texto]_", inline=False)
+
+        # Anexos removidos
+        antes_anexos = {a.id for a in before.attachments}
+        depois_anexos = {a.id for a in after.attachments}
+        removidos = antes_anexos - depois_anexos
+        adicionados = depois_anexos - antes_anexos
+
+        if removidos:
+            nomes = [a.filename for a in before.attachments if a.id in removidos]
+            embed.add_field(
+                name=f"📁 Anexos Removidos ({len(removidos)})",
+                value="\n".join(f"❌ {n}" for n in nomes),
+                inline=True
+            )
+        if adicionados:
+            nomes = [a.filename for a in after.attachments if a.id in adicionados]
+            embed.add_field(
+                name=f"📁 Anexos Adicionados ({len(adicionados)})",
+                value="\n".join(f"✅ {n}" for n in nomes),
+                inline=True
+            )
+
+        # Timestamps
+        embed.add_field(
+            name="📅 Mensagem criada em",
+            value=f"<t:{int(before.created_at.timestamp())}:F> (<t:{int(before.created_at.timestamp())}:R>)",
+            inline=False
+        )
+
+        embed.set_footer(text=f"Editada por: {after.author.name}")
+
+        await log_channel.send(embed=embed)
+        logger.info(
+            f"MSG_EDIT | Autor: {after.author.name} | Canal: #{after.channel.name} "
+            f"| ID: {after.id}"
+        )
+
+    # ─── Bulk Delete (purge / limpeza em massa) ─────────────────────────
+
+    @commands.Cog.listener()
+    async def on_bulk_message_delete(self, messages: list[discord.Message]):
+        if not messages:
+            return
+
+        guild = messages[0].guild
+        if not guild:
+            return
+        canal = messages[0].channel
+
+        log_channel = self._get_log_channel(guild)
+        if not log_channel:
+            return
+        if canal.name == self.log_channel_name:
+            return
+
+        await asyncio.sleep(1.5)
+
+        # ── Tenta descobrir quem fez o purge ──
+        responsavel = None
+        metodo = "desconhecido"
+        agora = discord.utils.utcnow()
+        janela = timedelta(seconds=10)
+
+        try:
+            # Primeiro checa message_bulk_delete
+            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.message_bulk_delete):
+                if (agora - entry.created_at) > janela:
+                    continue
+                if (hasattr(entry, 'extra')
+                        and entry.extra
+                        and hasattr(entry.extra, 'channel')
+                        and entry.extra.channel.id == canal.id):
+                    responsavel = entry.user
+                    metodo = "🛡️ Audit Log (bulk_delete)" if not responsavel.bot else "🤖 Audit Log (bulk_delete — bot)"
+                    break
+
+            # Se não achou, checa message_delete normal (alguns bots apagam 1 por 1 rápido)
+            if responsavel is None:
+                async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.message_delete):
+                    if (agora - entry.created_at) > janela:
+                        continue
+                    if (hasattr(entry, 'extra')
+                            and entry.extra
+                            and hasattr(entry.extra, 'channel')
+                            and entry.extra.channel.id == canal.id):
+                        responsavel = entry.user
+                        metodo = "🛡️ Audit Log (message_delete)" if not responsavel.bot else "🤖 Audit Log (message_delete — bot)"
+                        break
+        except discord.Forbidden:
+            metodo = "⚠️ Sem acesso ao Audit Log"
+        except Exception as e:
+            logger.error(f"Erro ao consultar audit log para bulk delete: {e}")
+
+        # ── Monta o Embed ──
+        embed = discord.Embed(
+            title=f"🗑️ Limpeza em Massa — {len(messages)} mensagens apagadas",
+            description=f"**Canal:** {canal.mention} (`#{canal.name}`)",
+            color=CORES.get('moderacao', 0xE74C3C),
+            timestamp=discord.utils.utcnow()
+        )
+
+        # Lista de autores afetados
+        autores = {}
+        for msg in messages:
+            nome = msg.author.name if msg.author else "Desconhecido"
+            autores[nome] = autores.get(nome, 0) + 1
+        autores_str = "\n".join(f"• **{nome}**: {qtd} msg(s)" for nome, qtd in autores.items())
+        embed.add_field(
+            name="👥 Autores Afetados",
+            value=self._truncar(autores_str) if autores_str else "Desconhecido",
+            inline=False
+        )
+
+        # Quem executou o purge
+        if responsavel:
+            embed.add_field(
+                name="🔍 Responsável pela Limpeza",
+                value=f"{responsavel.mention} (`{responsavel.name}` — ID: `{responsavel.id}`)\n**É bot?** {'Sim 🤖' if responsavel.bot else 'Não 👤'}",
+                inline=False
+            )
+        embed.add_field(name="🔬 Método", value=metodo, inline=True)
+
+        # Amostra das mensagens apagadas (últimas 5)
+        amostra = []
+        for msg in messages[:5]:
+            conteudo = msg.content[:80] if msg.content else "[sem texto]"
+            autor = msg.author.name if msg.author else "?"
+            amostra.append(f"**{autor}:** {conteudo}")
+        if len(messages) > 5:
+            amostra.append(f"_…e mais {len(messages) - 5} mensagem(ns)_")
+        embed.add_field(
+            name="📝 Amostra das Mensagens",
+            value=self._truncar("\n".join(amostra)),
+            inline=False
+        )
+
+        embed.set_footer(text=f"Total: {len(messages)} mensagens | Canal: #{canal.name}")
+
+        await log_channel.send(embed=embed)
+        logger.info(
+            f"BULK_DELETE | Canal: #{canal.name} | {len(messages)} msgs "
+            f"| Por: {responsavel.name if responsavel else '???'} | Método: {metodo}"
+        )
+
 
 async def setup(bot):
     await bot.add_cog(LoggingSystemCog(bot))
