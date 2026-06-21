@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
@@ -13,10 +13,124 @@ class LoggingSystemCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.log_channel_name = "📜logs"
+        self.LOG_MAX_DAYS = 7  # Dias para manter as logs antes de apagar
+        self._auto_limpar_logs.start()
+
+    def cog_unload(self):
+        """Para o loop quando o cog é descarregado."""
+        self._auto_limpar_logs.cancel()
 
     @commands.Cog.listener()
     async def on_ready(self):
         logger.info("--- Logging System Carregado ---")
+
+    # ─── Auto-Limpeza de Logs ────────────────────────────────────────────
+
+    async def _purgar_logs_antigos(self, guild: discord.Guild) -> int:
+        """
+        Apaga SOMENTE as mensagens com mais de LOG_MAX_DAYS dias
+        no canal de logs do servidor.
+
+        Cada mensagem é avaliada individualmente pelo seu created_at.
+        Mensagens mais recentes são preservadas.
+
+        Retorna: quantidade de mensagens apagadas.
+        """
+        log_channel = self._get_log_channel(guild)
+        if not log_channel:
+            return 0
+
+        limite = discord.utils.utcnow() - timedelta(days=self.LOG_MAX_DAYS)
+        apagadas = 0
+
+        # Percorre o histórico do canal do mais antigo para o mais novo
+        # Usa before=limite+1dia como otimização (pega msgs perto do limite)
+        async for mensagem in log_channel.history(limit=None, before=limite, oldest_first=True):
+            try:
+                await mensagem.delete()
+                apagadas += 1
+                # Respeita o rate limit do Discord (pequena pausa)
+                await asyncio.sleep(0.8)
+            except discord.NotFound:
+                # Mensagem já foi apagada por outra coisa
+                continue
+            except discord.Forbidden:
+                logger.warning(
+                    f"Sem permissão para apagar msgs de log em {guild.name}"
+                )
+                break
+            except discord.HTTPException as e:
+                logger.error(f"Erro ao apagar msg de log: {e}")
+                await asyncio.sleep(2)
+
+        return apagadas
+
+    @tasks.loop(hours=6)
+    async def _auto_limpar_logs(self):
+        """Loop automático que roda a cada 6 horas limpando logs antigas."""
+        logger.info("🧹 Iniciando limpeza automática de logs...")
+        total = 0
+        for guild in self.bot.guilds:
+            try:
+                apagadas = await self._purgar_logs_antigos(guild)
+                if apagadas > 0:
+                    logger.info(
+                        f"🧹 {guild.name}: {apagadas} log(s) com +{self.LOG_MAX_DAYS} dias apagada(s)"
+                    )
+                    total += apagadas
+            except Exception as e:
+                logger.error(f"Erro na limpeza de logs de {guild.name}: {e}")
+
+        if total > 0:
+            logger.info(f"🧹 Limpeza automática concluída — {total} log(s) apagada(s) no total")
+        else:
+            logger.info("🧹 Limpeza automática concluída — nenhuma log antiga encontrada")
+
+    @_auto_limpar_logs.before_loop
+    async def _antes_limpar(self):
+        """Espera o bot estar pronto antes de iniciar o loop."""
+        await self.bot.wait_until_ready()
+
+    # ─── Comando Manual de Limpeza ───────────────────────────────────────
+
+    @discord.app_commands.command(
+        name="limpar-logs",
+        description="🧹 Apaga manualmente todas as logs com mais de 7 dias"
+    )
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    async def limpar_logs_cmd(self, interaction: discord.Interaction):
+        """Comando slash para forçar a limpeza de logs antigas."""
+        await interaction.response.defer(ephemeral=True)
+
+        apagadas = await self._purgar_logs_antigos(interaction.guild)
+
+        if apagadas > 0:
+            embed = discord.Embed(
+                title="🧹 Limpeza de Logs Concluída",
+                description=(
+                    f"**{apagadas}** log(s) com mais de **{self.LOG_MAX_DAYS} dias** "
+                    f"foram apagadas do canal de logs."
+                ),
+                color=CORES['sucesso'],
+                timestamp=discord.utils.utcnow()
+            )
+        else:
+            embed = discord.Embed(
+                title="✅ Tudo Limpo",
+                description=(
+                    f"Nenhuma log com mais de **{self.LOG_MAX_DAYS} dias** encontrada.\n"
+                    f"O canal já está em dia!"
+                ),
+                color=CORES['info'],
+                timestamp=discord.utils.utcnow()
+            )
+
+        embed.set_footer(text=f"Executado por {interaction.user.name}")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        logger.info(
+            f"MANUAL_PURGE | Por: {interaction.user.name} | "
+            f"Servidor: {interaction.guild.name} | Apagadas: {apagadas}"
+        )
 
     # ─── Helpers ─────────────────────────────────────────────────────────
 
