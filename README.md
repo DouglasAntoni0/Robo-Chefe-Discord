@@ -1,126 +1,188 @@
-# 🤖 ROBÔ CHEFE — O Gerente do Discord
+<div align="center">
+
+# 🤖 ROBÔ CHEFE
+
+### O Gerente do seu Discord
 
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Discord.py](https://img.shields.io/badge/discord.py-2.7+-5865F2?style=for-the-badge&logo=discord&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![License](https://img.shields.io/badge/Licença-DOUGLAS--V1-red?style=for-the-badge)
+![SQLite](https://img.shields.io/badge/SQLite-aiosqlite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/Licença-DOUGLAS--V1-E74C3C?style=for-the-badge)
 
-Bem-vindo ao repositório oficial do **Robô Chefe**. Este é um bot de administração, atendimento e utilidades focado em manter a ordem na casa (e garantir que ninguém faça bagunça).
+**Bot completo de administração, atendimento e moderação para servidores Discord.**
 
-Atualmente hospedado e rodando liso na **Koyeb**. 🚀
+Tickets com pesquisa de satisfação · Anti-spam inteligente · Logs forenses · Reaction Roles · Boas-vindas
+
+[Funcionalidades](#-funcionalidades) · [Como Rodar](#-como-rodar) · [Estrutura](#-estrutura-do-projeto) · [Licença](#-aviso-de-propriedade-e-direitos)
+
+</div>
 
 ---
 
-## 🛠️ O que esse robô faz?
+## ✨ Funcionalidades
 
-Ele não tira café, mas faz quase todo o resto:
+### 📩 Sistema de Tickets — v5.0
 
-### 📩 Sistema de Tickets Avançado
-- Cria canais privados para atendimento
-- Salva o ID do usuário para garantir contato
-- **Pesquisa de Satisfação:** Ao fechar o ticket, o bot vai no PV do usuário perguntar a nota (1-5), opinião e sugestões
-- **Botões Persistentes:** Continuam funcionando mesmo após reiniciar o bot
+O coração do bot. Um sistema completo de atendimento ao cliente com fluxo profissional:
 
-### 🛡️ Moderação Inteligente
-- Sistema de avisos (`/avisar`, `/avisos`, `/limpar-avisos`)
-- Banco de dados **SQLite** (seguro e confiável)
-- Migração automática de dados antigos em JSON
+| Recurso | Descrição |
+|---|---|
+| **Abertura por botão** | Painel persistente com botão de criar ticket (`/setup-ticket`) |
+| **Canais privados** | Cada ticket cria um canal com permissões exclusivas para o cliente e equipe |
+| **Cargo "Funcionário"** | Busca automática por cargo com nome `Funcionário` — equipe de atendimento |
+| **Chamar Cliente** | Botão que envia DM ao cliente avisando que há resposta, com cooldown de 15 min |
+| **3 tipos de encerramento** | ✅ Concluído · ⚠️ Parcialmente Concluído · ❌ Não Entregue |
+| **DMs personalizadas** | Cada tipo de encerramento envia uma mensagem diferente no privado do cliente |
+| **Pesquisa de satisfação** | Modal com nota (1-5), opinião e sugestões — enviada via DM após fechamento |
+| **Log de avaliações** | Resultados da pesquisa são postados no canal `#avaliações` |
+| **Botões persistentes** | Todos os botões continuam funcionando após reiniciar o bot |
+| **Política de desistência** | Aviso automático sobre prazos de produção (48h) e retirada (24h) |
 
-### 🤖 Anti-Spam Automático
-- Detecta flood de mensagens (muitas mensagens rápidas)
-- Detecta spam de menções em massa
-- Detecta spam de links
-- Aplica **timeout automático** e notifica moderadores
+### 🛡️ Anti-Spam Automático
 
-### 👋 Sistema de Boas-Vindas
-- Mensagem automática quando alguém entra no servidor
-- Mensagem de despedida quando alguém sai
-- **Auto-Role:** Dá cargo automático a novos membros
-- Configurável via `/config-welcome`
+Proteção em tempo real contra comportamento abusivo — sem precisar de moderador online:
 
-### 📊 Logs de Auditoria
-- Monitora mensagens apagadas
-- Entrada/saída de canais de voz
-- Movimentação entre canais
+- **Flood de mensagens** — 5+ mensagens em 5 segundos → timeout automático
+- **Menções em massa** — 5+ menções (incluindo `@everyone`) → timeout
+- **Spam de links** — 3+ links em 10 segundos → timeout
+- **Timeout configurável** — 5 minutos por padrão
+- **Log automático** — Registra a ação no canal `#📜logs` com embed detalhado
+- **Ignora admins** — Administradores são isentos
+
+### ⚖️ Moderação com SQLite
+
+Sistema de avisos persistente e confiável:
+
+| Comando | Permissão | Descrição |
+|---|---|---|
+| `/avisar @membro motivo` | Kick Members | Registra um aviso com timestamp e moderador |
+| `/avisos @membro` | Todos | Consulta o histórico completo de avisos |
+| `/limpar-avisos @membro` | Administrador | Remove todos os avisos de um membro |
+| `/limpar-canal` | Administrador | Apaga todas as mensagens do canal (cooldown: 30s) |
+
+> Migração automática de dados legados em JSON para SQLite na primeira inicialização.
+
+### 📊 Logs de Auditoria Forenses
+
+O sistema de logs mais detalhado que você vai ver em um bot:
+
+**Mensagens apagadas:**
+- Investiga **quem apagou** usando múltiplos métodos (audit log individual, bulk delete, inferência)
+- Identifica se foi: 👤 auto-exclusão, 🛡️ moderador ou 🤖 bot
+- Exibe **nível de confiança** da detecção (Alta / Média-Alta / Baixa)
+- Captura conteúdo, anexos, embeds e stickers da mensagem
+- Timestamps formatados com notação do Discord (`<t:...>`)
+
+**Mensagens editadas:**
+- Registra conteúdo **antes** e **depois**
+- Detecta anexos adicionados/removidos
+- Link direto para a mensagem editada
+
+**Canais de voz:**
+- 🎤 Entrada em canal de voz
+- 🔇 Saída de canal de voz
+- 🔄 Movimentação entre canais
+
+**Limpeza em massa (purge):**
+- Contagem de mensagens apagadas
+- Lista de autores afetados com quantidade
+- Amostra das 5 primeiras mensagens
+- Identificação do responsável via audit log
+
+> Todos os logs são enviados para o canal `#📜logs`.
+
+### 👋 Boas-Vindas & Auto-Role
+
+| Comando | Descrição |
+|---|---|
+| `/config-welcome canal:#geral cargo:@Membro ativar:True` | Configura tudo de uma vez |
+
+- **Mensagem de entrada** — Embed com avatar, contagem de membros e boas-vindas
+- **Mensagem de saída** — Despedida quando alguém sai do servidor
+- **Auto-Role** — Atribui cargo automaticamente a novos membros
+- **Persistente** — Configurações salvas em JSON por servidor
 
 ### 🎭 Reaction Roles
-- Dá cargos automaticamente por botões
-- Painel configurável pelo administrador
-- Botões persistentes após reinício
+
+- Painel de cargos com botões persistentes (`/painel-cargos`)
+- Cargos configurados: **PC Gamer** e **Mobile Gamer**
+- Toggle automático — clicou de novo, remove o cargo
+- Funciona mesmo após reiniciar o bot
 
 ### 🎨 Embed Builder
-- Cria mensagens bonitonas via formulário (`/criar-embed`)
-- Cores customizáveis com código hex
 
-### 📈 Utilitários
-- `/sobre` — Painel de ajuda
-- `/hora` — Data e hora atuais
-- `/falar` — Mensagem anônima do bot
-- `/status` — Informações técnicas (latência, uptime, servidores)
+- Cria anúncios formatados via formulário interativo (`/criar-embed`)
+- Campos: título, descrição, cor hex, menção opcional, imagem de rodapé
+- Perfeito para comunicados do servidor
+
+### 📈 Comandos Gerais
+
+| Comando | Descrição |
+|---|---|
+| `/sobre` | Painel de ajuda com todos os comandos |
+| `/hora` | Data e hora atuais |
+| `/falar` | Bot envia mensagem anônima no canal |
+| `/status` | Latência, uptime, servidores, membros, versão do Python e discord.py |
 
 ---
 
 ## ⚙️ Características Técnicas
 
-- **Logging Profissional:** Sistema de logs com arquivo `bot.log` e console
-- **Error Handler Global:** Trata erros de todos os comandos de forma amigável
-- **Cooldowns:** Proteção contra uso excessivo de comandos
-- **Cores Consistentes:** Paleta de cores padronizada via `config.py`
-- **dotenv:** Suporte a `.env` para desenvolvimento local seguro
-- **Health Check:** Servidor HTTP para Koyeb não derrubar o bot
+- **Arquitetura Modular** — Sistema de Cogs do discord.py para separação de funcionalidades
+- **Slash Commands** — Todos os comandos usam a API de interações do Discord
+- **Botões Persistentes** — Views com `timeout=None` e `custom_id` para sobreviver a restarts
+- **Error Handler Global** — Trata `MissingPermissions`, `CommandOnCooldown`, `BotMissingPermissions` e erros inesperados
+- **Cooldowns** — Proteção contra spam em todos os comandos
+- **Logging Profissional** — Arquivo `bot.log` + console com formato padronizado
+- **dotenv** — Variáveis de ambiente via `.env` para segurança
+- **Health Check HTTP** — Servidor HTTP integrado para plataformas como Koyeb
+- **Docker Ready** — Dockerfile pronto para deploy containerizado
+- **DisCloud Ready** — Configuração `discloud.config` inclusa
 
 ---
 
-## ⚠️ AVISO DE PROPRIEDADE E DIREITOS (LEIA!)
+## 🚀 Como Rodar
 
-Este código está público no GitHub para **fins de estudo e portfólio**.
+### Pré-requisitos
 
-**📜 A Licença "DOUGLAS-V1" (Lei do Chefe):**
+- Python 3.12+
+- Um bot criado no [Discord Developer Portal](https://discord.com/developers/applications)
+- Intents habilitadas: `Message Content` e `Server Members`
 
-1.  **Pode olhar?** 👀 Pode. Fique à vontade para aprender como funciona.
-2.  **Pode usar de base?** 📚 Pode, desde que você não faça um "Ctrl+C / Ctrl+V" safado e diga que foi você que criou.
-3.  **Pode vender?** 🚫 **NEM PENSAR.** Se eu ver alguém vendendo esse código, o processo vem a galope (ou eu mando o bot travar seu Discord, brincadeira... ou não).
-4.  **Autoria:** Se usar partes deste código, tenha a decência de manter os créditos ou pagar um salgado pro desenvolvedor.
+### Instalação
 
-**Resumo:** Não seja um "kibeiro". O código é aberto, mas a autoria é do **Douglas Antonio**. Respeite para ser respeitado. 🤝
+```bash
+# 1. Clone o repositório
+git clone https://github.com/DouglasAntoni0/Robo-Chefe-Discord.git
+cd Robo-Chefe-Discord
 
----
+# 2. Instale as dependências
+pip install -r requirements.txt
 
-## 🚀 Tecnologias
+# 3. Configure o token
+cp .env.example .env
+# Edite o .env e cole seu DISCORD_TOKEN
 
-| Tecnologia | Versão |
-|---|---|
-| Python | 3.12+ |
-| discord.py | 2.7+ |
-| SQLite | via aiosqlite |
-| Hospedagem | Koyeb (Worker) |
+# 4. Rode o bot
+python main.py
+```
 
----
+### Docker
 
-## 🔧 Como rodar (para devs)
+```bash
+docker build -t robo-chefe .
+docker run -d --env-file .env robo-chefe
+```
 
-Se você for rodar isso localmente (no seu PC):
+### Primeiro uso no servidor
 
-1.  Clone o repositório:
-    ```bash
-    git clone https://github.com/DouglasAntoni0/Robo-Chefe-Discord..git Robo-Chefe-Discord
-    ```
-
-2.  Instale as dependências:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  Configure o token — copie o exemplo e edite:
-    ```bash
-    cp .env.example .env
-    # Edite o arquivo .env e cole seu DISCORD_TOKEN
-    ```
-
-4.  Rode o bot:
-    ```bash
-    python main.py
-    ```
+1. Use `!sync` para registrar os slash commands (somente o dono do bot)
+2. Crie um canal chamado `📜logs` para receber os logs de auditoria
+3. Crie um canal chamado `avaliações` para receber as pesquisas de satisfação
+4. Use `/setup-ticket` no canal onde deseja o painel de tickets
+5. Use `/config-welcome` para configurar boas-vindas
+6. Use `/painel-cargos` para configurar reaction roles
 
 ---
 
@@ -128,23 +190,60 @@ Se você for rodar isso localmente (no seu PC):
 
 ```
 Robo-Chefe-Discord/
-├── main.py              # Ponto de entrada do bot
-├── config.py            # Configurações centrais (cores, logging, dotenv)
-├── requirements.txt     # Dependências
-├── .env.example         # Exemplo de variáveis de ambiente
-├── .gitignore           # Arquivos ignorados pelo Git
+├── main.py                  # Entry point — bot, health check, error handler, sync
+├── config.py                # Cores, logging, dotenv
+├── requirements.txt         # discord.py, python-dotenv, aiosqlite
+├── .env.example             # Template de variáveis de ambiente
+├── Dockerfile               # Deploy com Docker
+├── discloud.config          # Deploy na DisCloud
+│
 ├── cogs/
-│   ├── anti_spam.py     # Sistema anti-spam automático
-│   ├── embed_builder.py # Criador de embeds/anúncios
-│   ├── general_commands.py  # Comandos gerais (/sobre, /hora, /status)
-│   ├── logging_system.py    # Logs de auditoria
-│   ├── moderation_system.py # Moderação com SQLite
-│   ├── reaction_roles.py    # Cargos por botão
-│   ├── ticket_system.py     # Sistema de tickets
-│   └── welcome_system.py    # Boas-vindas e auto-role
-└── README.md
+│   ├── ticket_system.py     # Sistema de tickets v5.0 (19KB)
+│   ├── logging_system.py    # Logs forenses de mensagens e voz (21KB)
+│   ├── moderation_system.py # Avisos com SQLite + migração JSON (7KB)
+│   ├── anti_spam.py         # Anti-flood, menções e links (5KB)
+│   ├── welcome_system.py    # Boas-vindas, despedida e auto-role (5KB)
+│   ├── general_commands.py  # /sobre, /hora, /falar, /status (4KB)
+│   ├── reaction_roles.py    # Cargos por botão persistente (4KB)
+│   └── embed_builder.py     # Criador de embeds/anúncios (3KB)
+│
+├── warnings.db              # Banco de dados SQLite (avisos)
+└── bot.log                  # Arquivo de log do bot
 ```
 
 ---
 
-*Desenvolvido com ☕ e ódio a bugs por Douglas Antonio.*
+## 🛠️ Tecnologias
+
+| Tecnologia | Uso |
+|---|---|
+| **Python 3.12+** | Linguagem principal |
+| **discord.py 2.7+** | Framework do bot |
+| **aiosqlite** | Banco de dados assíncrono para avisos |
+| **python-dotenv** | Variáveis de ambiente seguras |
+| **Docker** | Containerização para deploy |
+
+---
+
+## ⚠️ Aviso de Propriedade e Direitos
+
+Este código está público no GitHub para **fins de estudo e portfólio**.
+
+### 📜 Licença "DOUGLAS-V1" (Lei do Chefe)
+
+| | Regra |
+|---|---|
+| 👀 **Pode olhar?** | Pode. Fique à vontade para aprender como funciona. |
+| 📚 **Pode usar de base?** | Pode, desde que não faça um "Ctrl+C / Ctrl+V" e diga que foi você que criou. |
+| 🚫 **Pode vender?** | **NEM PENSAR.** |
+| 🤝 **Créditos** | Se usar partes deste código, mantenha os créditos ou pague um salgado pro dev. |
+
+**Resumo:** O código é aberto, mas a autoria é do **Douglas Antonio**. Respeite para ser respeitado. 🤝
+
+---
+
+<div align="center">
+
+*Desenvolvido com ☕ e ódio a bugs por **Douglas Antonio**.*
+
+</div>
