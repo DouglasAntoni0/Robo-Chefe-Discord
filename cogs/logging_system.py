@@ -166,18 +166,16 @@ class LoggingSystemCog(commands.Cog):
         # Espera o Discord propagar a entrada no audit log
         await asyncio.sleep(1.5)
 
-        # ── Investigação completa ──
+        # ── Investigação ──
         deleter, metodo, confianca = await self._investigar_quem_apagou(message)
-
-        # ── Monta o Embed principal ──
         is_self_delete = (deleter and deleter.id == message.author.id)
 
         if is_self_delete:
-            cor = CORES.get('aviso', 0xF39C12)       # Amarelo — auto-exclusão
-            titulo = "🗑️ Mensagem Apagada (pelo próprio autor)"
+            cor = CORES.get('aviso', 0xF39C12)
+            titulo = "🗑️ Mensagem Apagada"
         else:
-            cor = CORES.get('moderacao', 0xE74C3C)    # Vermelho — moderação
-            titulo = "🛡️ Mensagem Apagada (por moderação)"
+            cor = CORES.get('moderacao', 0xE74C3C)
+            titulo = "🛡️ Mensagem Apagada por Moderação"
 
         embed = discord.Embed(
             title=titulo,
@@ -185,108 +183,48 @@ class LoggingSystemCog(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
 
-        # Autor da mensagem
         embed.set_author(
-            name=f"{message.author.display_name} ({message.author.name})",
+            name=message.author.display_name,
             icon_url=message.author.avatar.url if message.author.avatar else None
         )
 
-        # Descrição geral
-        desc_lines = [
-            f"**Autor:** {message.author.mention} (`{message.author.id}`)",
-            f"**Canal:** {message.channel.mention} (`#{message.channel.name}`)",
-            f"**ID da Mensagem:** `{message.id}`",
-        ]
-        embed.description = "\n".join(desc_lines)
+        embed.description = f"**Autor:** {message.author.mention}\n**Canal:** {message.channel.mention}"
 
-        # ── Conteúdo da mensagem ──
+        # ── Conteúdo ──
         if message.content:
             embed.add_field(
-                name="📝 Conteúdo da Mensagem",
+                name="📝 Conteúdo",
                 value=self._truncar(f"```\n{message.content}\n```"),
                 inline=False
             )
 
-        # ── Anexos (imagens, arquivos) ──
+        # ── Anexos (simplificado) ──
         if message.attachments:
-            anexos = []
-            for att in message.attachments:
-                tamanho = f"{att.size / 1024:.1f} KB" if att.size else "?"
-                anexos.append(f"📎 [{att.filename}]({att.url}) ({tamanho})")
+            nomes = [f"📎 {att.filename}" for att in message.attachments]
             embed.add_field(
                 name=f"📁 Anexos ({len(message.attachments)})",
-                value=self._truncar("\n".join(anexos)),
+                value="\n".join(nomes),
                 inline=False
             )
 
-        # ── Embeds na mensagem ──
-        if message.embeds:
-            embed_info = []
-            for i, emb in enumerate(message.embeds, 1):
-                titulo_emb = emb.title or "Sem título"
-                embed_info.append(f"#{i}: {titulo_emb}")
+        # ── Quem apagou (só se não foi o próprio autor) ──
+        if deleter and not is_self_delete:
             embed.add_field(
-                name=f"🔗 Embeds ({len(message.embeds)})",
-                value=self._truncar("\n".join(embed_info)),
-                inline=True
-            )
-
-        # ── Stickers ──
-        if message.stickers:
-            sticker_info = [f"🏷️ {s.name}" for s in message.stickers]
-            embed.add_field(
-                name=f"🏷️ Stickers ({len(message.stickers)})",
-                value="\n".join(sticker_info),
-                inline=True
-            )
-
-        # ── Data de criação da mensagem ──
-        embed.add_field(
-            name="📅 Mensagem criada em",
-            value=f"<t:{int(message.created_at.timestamp())}:F> (<t:{int(message.created_at.timestamp())}:R>)",
-            inline=False
-        )
-
-        # ── Quem apagou (resultado da investigação) ──
-        if deleter:
-            quem_info = [
-                f"**Quem apagou:** {deleter.mention} (`{deleter.name}` — ID: `{deleter.id}`)",
-            ]
-            if hasattr(deleter, 'bot'):
-                quem_info.append(f"**É bot?** {'Sim 🤖' if deleter.bot else 'Não 👤'}")
-            if hasattr(deleter, 'top_role') and deleter.top_role:
-                quem_info.append(f"**Cargo mais alto:** {deleter.top_role.mention}")
-
-            embed.add_field(
-                name="🔍 Quem Apagou",
-                value="\n".join(quem_info),
+                name="🔍 Apagada por",
+                value=deleter.mention,
                 inline=False
             )
-
-        # ── Método de detecção ──
-        embed.add_field(
-            name="🔬 Método de Verificação",
-            value=f"{metodo}",
-            inline=True
-        )
-        embed.add_field(
-            name="📊 Confiança",
-            value=f"{confianca}",
-            inline=True
-        )
 
         # ── Footer ──
-        if deleter and not is_self_delete:
-            embed.set_footer(text=f"⚠️ MODERAÇÃO: Apagada por {deleter.name}")
-        elif is_self_delete:
-            embed.set_footer(text=f"O próprio autor ({message.author.name}) apagou sua mensagem")
-        else:
-            embed.set_footer(text="Investigação inconclusiva")
+        if is_self_delete:
+            embed.set_footer(text="Apagada pelo próprio autor")
+        elif deleter:
+            embed.set_footer(text=f"Apagada por {deleter.name}")
 
         await log_channel.send(embed=embed)
         logger.info(
             f"MSG_DELETE | Autor: {message.author.name} | Canal: #{message.channel.name} "
-            f"| Deletada por: {deleter.name if deleter else '???'} | Método: {metodo}"
+            f"| Deletada por: {deleter.name if deleter else '???'}"
         )
 
     # ─── Mensagem Editada ─────────────────────────────────────────────────
