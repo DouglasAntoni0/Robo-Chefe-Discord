@@ -207,9 +207,13 @@ Robo-Chefe-Discord/
 │   ├── reaction_roles.py    # Cargos por botão persistente (4KB)
 │   └── embed_builder.py     # Criador de embeds/anúncios (3KB)
 │
-├── warnings.db              # Banco de dados SQLite (avisos)
-└── bot.log                  # Arquivo de log do bot
+└── README.md                # Documentação do projeto
 ```
+
+Arquivos gerados em runtime e não versionados:
+
+- `warnings.db`
+- `bot.log`
 
 ---
 
